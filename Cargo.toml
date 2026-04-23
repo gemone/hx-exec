@@ -1,0 +1,20 @@
+[package]
+name = "hx-exec"
+version = "0.1.0"
+edition = "2021"
+description = "Cross-platform launcher that expands ${VAR}, $(cmd), and TOML aliases — designed for Helix LSP/tools."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/gemone/hx-exec"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+dirs = "5"
+anyhow = "1"
+shell-words = "1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

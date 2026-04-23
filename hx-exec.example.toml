@@ -1,0 +1,56 @@
+# hx-exec example configuration.
+# Place at one of:
+#   - ./hx-exec.toml
+#   - ${HELIX_CONFIG}/hx-exec.toml
+#   - <system-config-dir>/hx-exec/hx-exec.toml
+
+# ---------------------------------------------------------------------------
+# Single-table form (no OS matching) — behaves like the original version.
+# ---------------------------------------------------------------------------
+
+[alias.rust-analyzer]
+cmd = "rust-analyzer"
+
+[alias.angular-lsp]
+command = "ngserver"
+args = [
+  "--stdio",
+  "--tsProbeLocations", "${NODE_MODULES}",
+  "--ngProbeLocations", "${NODE_MODULES}",
+]
+env = { NODE_MODULES = "$(npm -g root)" }
+
+[alias.with-helix-config]
+command = "my-lsp"
+args = ["--config", "${HELIX_CONFIG}/my-lsp.toml"]
+
+# ---------------------------------------------------------------------------
+# Multi-variant form — pick by OS, optionally wrap through a native shell.
+# ---------------------------------------------------------------------------
+
+# Windows uses pwsh; Unix uses bash — same alias name.
+[[alias.my-tool]]
+os = "windows"
+shell = "pwsh"
+cmd = "Get-ChildItem $env:APPDATA | Where-Object { $_.Name -match 'helix' }"
+
+[[alias.my-tool]]
+os = "unix"
+shell = "bash"
+cmd = 'ls "${HELIX_CONFIG}" | grep helix'
+
+[[alias.my-tool]]
+# Fallback for OSes not matched above.
+cmd = "echo no-native-impl"
+
+# Per-OS arg-list variant (no shell):
+[[alias.eslint]]
+os = "windows"
+command = "vscode-eslint-language-server.cmd"
+args = ["--stdio"]
+
+[[alias.eslint]]
+# Applies on macOS/Linux (or anywhere non-Windows via explicit fallback).
+command = "vscode-eslint-language-server"
+args = ["--stdio"]
+env = { NODE_PATH = "$(npm -g root)" }
