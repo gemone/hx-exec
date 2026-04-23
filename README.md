@@ -50,9 +50,13 @@ args = ["--stdio",
 ## 安装
 
 ```sh
+# 从 GitHub 远程安装（推荐）
+cargo install --git https://github.com/gemone/hx-exec
+
+# 或从源码安装
+git clone https://github.com/gemone/hx-exec.git
+cd hx-exec
 cargo install --path .
-# 或
-cargo build --release
 # 产物：target/release/hx-exec
 ```
 
