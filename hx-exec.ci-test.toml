@@ -1,0 +1,151 @@
+# hx-exec CI test configuration
+# Tests environment inheritance across different shells
+# Used for verifying PATH and environment variable handling in CI
+
+# ============================================================================
+# Test 1: Direct command execution (no shell) - verify PATH
+# ============================================================================
+
+[alias.ci-direct-which]
+cmd = "which bash"
+
+[alias.ci-direct-whoami]
+cmd = "whoami"
+
+# ============================================================================
+# Test 2: Environment variable resolution without shell
+# ============================================================================
+
+[[alias.ci-env-direct]]
+os = "unix"
+cmd = "echo ${RESOLVED_PWD}"
+env.RESOLVED_PWD = { cmd = "pwd" }
+
+[[alias.ci-env-direct]]
+os = "windows"
+cmd = "echo ${RESOLVED_PWD}"
+env.RESOLVED_PWD = { cmd = "cd" }
+
+# ============================================================================
+# Test 3: Bash shell - test Unix environments
+# ============================================================================
+
+[alias.ci-bash-env]
+shell = "bash"
+cmd = 'echo "USER=$USER PATH_COUNT=$(echo $PATH | tr ":" "\n" | wc -l) HOME=$HOME"'
+
+[alias.ci-bash-pwd]
+shell = "bash"
+cmd = 'cd ${TEST_DIR} && pwd'
+env.TEST_DIR = { cmd = "pwd" }
+
+[alias.ci-bash-which]
+shell = "bash"
+cmd = 'which bash && which sh'
+
+# ============================================================================
+# Test 4: Zsh shell - test Unix environments
+# ============================================================================
+
+[alias.ci-zsh-env]
+shell = "zsh"
+cmd = 'echo "SHELL=$SHELL PATH_COUNT=${#path[@]} HOME=$HOME"'
+
+[alias.ci-zsh-pwd]
+shell = "zsh"
+cmd = 'cd ${TEST_DIR} && pwd'
+env.TEST_DIR = { cmd = "pwd" }
+
+# ============================================================================
+# Test 5: PowerShell (pwsh) on Windows - test Windows shell
+# ============================================================================
+
+[[alias.ci-pwsh-env]]
+os = "windows"
+shell = "pwsh"
+cmd = 'Write-Output "USER=$env:USERNAME PATH_COUNT=$($env:PATH -split ";" | Measure-Object -Line | Select-Object -ExpandProperty Lines) HOME=$env:USERPROFILE"'
+
+[[alias.ci-pwsh-which]]
+os = "windows"
+shell = "pwsh"
+cmd = 'Get-Command pwsh -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source'
+
+[[alias.ci-pwsh-env-test]]
+os = "windows"
+shell = "pwsh"
+cmd = '$env:TEST_PATH | Write-Output'
+env.TEST_PATH = { cmd = "cd", shell = "pwsh" }
+
+# ============================================================================
+# Test 6: Cmd (cmd.exe) on Windows - legacy shell
+# ============================================================================
+
+[[alias.ci-cmd-env]]
+os = "windows"
+shell = "cmd"
+cmd = 'echo USER=%USERNAME% HOME=%USERPROFILE%'
+
+[[alias.ci-cmd-which]]
+os = "windows"
+shell = "cmd"
+cmd = 'where cmd.exe'
+
+# ============================================================================
+# Test 7: Command substitution $(cmd) - test PATH inheritance
+# ============================================================================
+
+[alias.ci-cmdsub-pwd]
+cmd = "echo Current dir: $(pwd)"
+
+[alias.ci-cmdsub-user]
+cmd = "echo Running as: $(whoami)"
+
+[[alias.ci-cmdsub-pathtest]]
+os = "unix"
+cmd = "echo Bash found at: $(which bash)"
+
+[[alias.ci-cmdsub-pathtest]]
+os = "windows"
+shell = "pwsh"
+cmd = 'Write-Output "PowerShell found at: $(Get-Command pwsh | Select-Object -ExpandProperty Source)"'
+
+# ============================================================================
+# Test 8: Complex multi-shell scenarios
+# ============================================================================
+
+[[alias.ci-npm-root]]
+os = "unix"
+command = "echo"
+args = ["npm root is: ${NPM_ROOT}"]
+env.NPM_ROOT = { cmd = "npm root -g" }
+
+[[alias.ci-npm-root]]
+os = "windows"
+command = "echo"
+args = ["npm root is: ${NPM_ROOT}"]
+env.NPM_ROOT = { cmd = "npm root -g", shell = "pwsh" }
+
+# ============================================================================
+# Test 9: Environment inheritance verification
+# ============================================================================
+
+[alias.ci-env-inherit-test]
+shell = "bash"
+cmd = 'if [ -n "$CI_TEST_VAR" ]; then echo "Got env var: $CI_TEST_VAR"; else echo "MISSING env var"; fi'
+
+[[alias.ci-env-inherit-win]]
+os = "windows"
+shell = "pwsh"
+cmd = 'if ($env:CI_TEST_VAR) { Write-Output "Got env var: $env:CI_TEST_VAR" } else { Write-Output "MISSING env var" }'
+
+# ============================================================================
+# Test 10: Nested command expansion
+# ============================================================================
+
+[alias.ci-nested-expand]
+cmd = "echo Home is ${HOME} and current dir from cmd is $(pwd)"
+
+[[alias.ci-nested-pwsh]]
+os = "windows"
+shell = "pwsh"
+cmd = 'Write-Output "APPDATA=$env:APPDATA and current dir=$(Get-Location)"'

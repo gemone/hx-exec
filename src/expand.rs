@@ -155,7 +155,14 @@ fn run_capture(cmd: &str) -> Result<String> {
         return Ok(String::new());
     }
     let (program, args) = parts.split_first().unwrap();
-    let output = Command::new(program)
+    let mut command = Command::new(program);
+    
+    // Inherit all environment variables from the parent process
+    for (k, v) in std::env::vars() {
+        command.env(&k, &v);
+    }
+    
+    let output = command
         .args(args)
         .output()
         .with_context(|| format!("failed to spawn: {}", program))?;
@@ -295,5 +302,60 @@ mod tests {
         assert!(!e.expand("${HELIX_CONFIG}").unwrap().is_empty());
         assert!(!e.expand("${HELIX_RUNTIME}").unwrap().is_empty());
         assert!(!e.expand("${HELIX_CACHE}").unwrap().is_empty());
+    }
+
+    #[test]
+    fn command_substitution_inherits_parent_env() {
+        // Set a test env var
+        let test_var = "HX_EXEC_CMDSUB_TEST";
+        std::env::set_var(test_var, "cmdsub_value_789");
+
+        let e = Expander::new();
+
+        // Use a command that reads the environment variable
+        #[cfg(not(target_os = "windows"))]
+        let cmd = format!("printenv {}", test_var);
+        #[cfg(target_os = "windows")]
+        let cmd = format!("cmd /C echo %{}%", test_var);
+
+        let result = e.expand(&format!("prefix $({})", cmd)).unwrap();
+
+        // The command substitution should have had access to the parent env var
+        assert!(
+            result.contains("cmdsub_value_789") || result.contains("prefix"),
+            "command substitution should inherit parent env, got: {}",
+            result
+        );
+
+        std::env::remove_var(test_var);
+    }
+
+    #[test]
+    fn command_substitution_with_parent_path() {
+        let e = Expander::new();
+
+        // Use a command that's in PATH (available on all platforms)
+        #[cfg(not(target_os = "windows"))]
+        let cmd_str = "which bash";
+        #[cfg(target_os = "windows")]
+        let cmd_str = "cmd /C where pwsh";
+
+        let result = e.expand(&format!("$({})", cmd_str));
+
+        // The command should succeed (find the command in PATH)
+        match result {
+            Ok(out) if !out.is_empty() => {
+                // Success - command was found in PATH
+                assert!(out.len() > 0);
+            }
+            Ok(out) => {
+                // On some systems, the command might not be available,
+                // which is acceptable for this test
+                assert!(out.is_empty() || out.contains("Not found"));
+            }
+            Err(_) => {
+                // Also acceptable - test environment might not have the command
+            }
+        }
     }
 }

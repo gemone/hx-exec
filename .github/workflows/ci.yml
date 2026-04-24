@@ -37,3 +37,114 @@ jobs:
 
       - name: Test
         run: cargo test --locked
+
+      - name: Build Release
+        run: cargo build --release --locked
+
+  # Integration tests for environment inheritance across shells
+  integration-tests:
+    name: Integration Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    needs: build-and-test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry & build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build Release (for integration tests)
+        run: cargo build --release --locked
+
+      - name: Run integration tests (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          bash tests/ci-integration-test.sh
+
+      - name: Run integration tests (Windows - PowerShell)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Run subset of tests on Windows using PowerShell
+          $BIN = ".\target\release\hx-exec.exe"
+          $CONFIG = ".\hx-exec.ci-test.toml"
+          
+          Write-Host "Testing environment inheritance on Windows PowerShell" -ForegroundColor Blue
+          
+          # Test direct command
+          Write-Host "[TEST] Direct whoami command" -ForegroundColor Cyan
+          & $BIN -f $CONFIG -c ci-direct-whoami | Write-Host
+          
+          # Test PowerShell shell
+          Write-Host "[TEST] PowerShell environment variables" -ForegroundColor Cyan
+          & $BIN -f $CONFIG -c ci-pwsh-env | Write-Host
+          
+          # Test cmd.exe shell
+          Write-Host "[TEST] cmd.exe environment variables" -ForegroundColor Cyan
+          & $BIN -f $CONFIG -c ci-cmd-env | Write-Host
+
+  # Test matrix across different shells
+  shell-matrix-tests:
+    name: Shell Matrix Tests (${{ matrix.shell }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shell:
+          - bash
+          - sh
+          - zsh
+    needs: build-and-test
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install shell (${{ matrix.shell }})
+        run: |
+          if [ "${{ matrix.shell }}" = "zsh" ]; then
+            apt-get update && apt-get install -y zsh
+          fi
+
+      - name: Build Release
+        run: cargo build --release --locked
+
+      - name: Test with ${{ matrix.shell }}
+        run: |
+          # Source and use the specified shell
+          export TEST_SHELL="${{ matrix.shell }}"
+          echo "Testing with shell: $TEST_SHELL"
+          
+          BIN="./target/release/hx-exec"
+          CONFIG="./hx-exec.ci-test.toml"
+          
+          # Test basic command execution
+          $BIN -f $CONFIG -c ci-direct-whoami
+          
+          # Test environment inheritance
+          export CI_TEST_VAR="shell_test_value"
+          $BIN -f $CONFIG -c ci-env-inherit-test
+          
+          # Test command substitution
+          $BIN -f $CONFIG -c ci-cmdsub-pwd
+
