@@ -174,7 +174,7 @@ fn run_capture(cmd: &str) -> Result<String> {
         .into());
     }
     let mut s = String::from_utf8(output.stdout)
-        .map_err(|_| "command stdout was not UTF-8")?;
+        .map_err(|e| format!("command stdout was not UTF-8: {}", e))?;
     while s.ends_with(|c: char| c == '\n' || c == '\r' || c == ' ' || c == '\t') {
         s.pop();
     }

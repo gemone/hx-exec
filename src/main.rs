@@ -24,20 +24,43 @@ fn parse_args() -> Result<Cli> {
         print: false,
         command: Vec::new(),
     };
-    let mut args = std::env::args().skip(1).peekable();
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
+    let mut args = std::env::args_os().skip(1).peekable();
+    while let Some(raw) = args.next() {
+        // Reject non-UTF-8 flag tokens (paths are handled separately below)
+        let arg = raw.to_str().ok_or("argument is not valid UTF-8")?;
+        match arg {
             "-c" | "--config" => {
+                let raw_val = args
+                    .next()
+                    .ok_or_else(|| format!("flag `{}` requires a value", arg))?;
+                if raw_val.to_str().map_or(false, |s| s.starts_with('-')) {
+                    return Err(format!(
+                        "flag `{}` requires a value, got `{}`",
+                        arg,
+                        raw_val.to_string_lossy()
+                    )
+                    .into());
+                }
                 cli.alias = Some(
-                    args.next()
-                        .ok_or_else(|| format!("flag `{}` requires a value", arg))?,
+                    raw_val
+                        .into_string()
+                        .map_err(|v| format!("value for `{}` is not valid UTF-8: {:?}", arg, v))?,
                 );
             }
             "-f" | "--file" => {
-                cli.file = Some(PathBuf::from(
-                    args.next()
-                        .ok_or_else(|| format!("flag `{}` requires a value", arg))?,
-                ));
+                let raw_val = args
+                    .next()
+                    .ok_or_else(|| format!("flag `{}` requires a value", arg))?;
+                if raw_val.to_str().map_or(false, |s| s.starts_with('-')) {
+                    return Err(format!(
+                        "flag `{}` requires a value, got `{}`",
+                        arg,
+                        raw_val.to_string_lossy()
+                    )
+                    .into());
+                }
+                // PathBuf accepts OsString directly — no UTF-8 conversion needed
+                cli.file = Some(PathBuf::from(raw_val));
             }
             "--print" => cli.print = true,
             "-h" | "--help" => {
@@ -49,15 +72,25 @@ fn parse_args() -> Result<Cli> {
                 std::process::exit(0);
             }
             "--" => {
-                cli.command.extend(args);
+                for rest in args {
+                    cli.command.push(
+                        rest.into_string()
+                            .map_err(|v| format!("command argument is not valid UTF-8: {:?}", v))?,
+                    );
+                }
                 break;
             }
             arg if arg.starts_with('-') => {
                 return Err(format!("unknown flag `{}`", arg).into());
             }
             _ => {
-                cli.command.push(arg);
-                cli.command.extend(args);
+                cli.command.push(arg.to_owned());
+                for rest in args {
+                    cli.command.push(
+                        rest.into_string()
+                            .map_err(|v| format!("command argument is not valid UTF-8: {:?}", v))?,
+                    );
+                }
                 break;
             }
         }
@@ -72,6 +105,7 @@ Expand ${{VAR}} / $(cmd) and launch — built for Helix LSPs across OSes.
 
 USAGE:
     hx-exec [OPTIONS] [-- <CMD>...]
+    hx-exec [OPTIONS] <CMD>...
 
 OPTIONS:
     -c, --config <ALIAS>   Named alias from hx-exec.toml to execute

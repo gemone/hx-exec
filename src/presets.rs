@@ -90,10 +90,8 @@ pub fn helix_config_dir() -> Option<PathBuf> {
 
     #[cfg(not(target_os = "windows"))]
     {
-        if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
-            if !xdg.is_empty() {
-                return Some(PathBuf::from(xdg).join("helix"));
-            }
+        if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()) {
+            return Some(PathBuf::from(xdg).join("helix"));
         }
         if let Some(home) = home_dir() {
             return Some(home.join(".config").join("helix"));
