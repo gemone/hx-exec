@@ -2,7 +2,7 @@
 //!
 //! Expansion precedence for variables:
 //! 1. Extra variables passed in (e.g. alias-provided env)
-//! 2. `presets::resolve` (HELIX_CONFIG, HELIX_RUNTIME, HELIX_CACHE)
+//! 2. `presets::resolve` (HELIX_CONFIG, HELIX_RUNTIME, HELIX_CACHE, pwd)
 //! 3. Process environment
 //!
 //! Command substitution `$(...)` is parsed via `shell-words` and executed
@@ -265,5 +265,46 @@ mod tests {
         let e = Expander::new();
         let out = e.expand("${HELIX_CONFIG}").unwrap();
         assert!(!out.is_empty(), "HELIX_CONFIG should resolve");
+    }
+
+    #[test]
+    fn pwd_preset_expands_to_nonempty_dir() {
+        let e = Expander::new();
+        let out = e.expand("${pwd}").unwrap();
+        assert!(!out.is_empty(), "${{pwd}} should expand to a non-empty path");
+    }
+
+    #[test]
+    fn pwd_preset_matches_current_dir() {
+        let expected = std::env::current_dir()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        let e = Expander::new();
+        let out = e.expand("${pwd}").unwrap();
+        assert_eq!(out, expected, "${{pwd}} should equal std::env::current_dir()");
+    }
+
+    #[test]
+    fn pwd_preset_not_overridden_by_env_var() {
+        // Setting a `pwd` env var must NOT change the preset result:
+        // ${pwd} is always the detected current directory from the OS API.
+        let before = crate::presets::current_dir();
+        std::env::set_var("pwd", "/tmp/hx-exec-bogus-pwd-should-be-ignored");
+        let after = crate::presets::current_dir();
+        std::env::remove_var("pwd");
+        assert_eq!(before, after);
+        assert_ne!(
+            after.as_ref().map(|p| p.to_string_lossy().into_owned()),
+            Some("/tmp/hx-exec-bogus-pwd-should-be-ignored".to_string())
+        );
+    }
+
+    #[test]
+    fn existing_presets_still_work() {
+        let e = Expander::new();
+        assert!(!e.expand("${HELIX_CONFIG}").unwrap().is_empty());
+        assert!(!e.expand("${HELIX_RUNTIME}").unwrap().is_empty());
+        assert!(!e.expand("${HELIX_CACHE}").unwrap().is_empty());
     }
 }

@@ -35,8 +35,8 @@ args = ["--stdio",
 
 ### 预置路径解析
 
-`${HELIX_CONFIG}`、`${HELIX_RUNTIME}`、`${HELIX_CACHE}` 是 **hx-exec 内置的预置变量**，
-不受同名 env 变量影响（它们由 OS 规则直接解析到用户的 helix 目录）。
+`${HELIX_CONFIG}`、`${HELIX_RUNTIME}`、`${HELIX_CACHE}`、`${pwd}` 是 **hx-exec 内置的预置变量**，
+不受同名 env 变量影响（它们由 OS 规则直接解析到用户的 helix 目录或当前执行目录）。
 若要对某个别名覆写，可在 `alias.env` 中显式指定 —— `alias.env` 优先级高于预置。
 
 | 变量              | Linux                            | macOS              | Windows               |
@@ -44,9 +44,11 @@ args = ["--stdio",
 | `${HELIX_CONFIG}` | `$XDG_CONFIG_HOME/helix` / `~/.config/helix` | `~/.config/helix`  | `%AppData%\helix`     |
 | `${HELIX_RUNTIME}`| `$HELIX_RUNTIME` env 或 `${HELIX_CONFIG}/runtime` | 同左 | 同左 |
 | `${HELIX_CACHE}`  | `$XDG_CACHE_HOME/helix` / `~/.cache/helix` | `~/Library/Caches/helix` | `%LocalAppData%\helix` |
+| `${pwd}`          | 当前执行目录（`std::env::current_dir()`，不执行外部命令） | 同左 | 同左 |
 
 > `${HELIX_RUNTIME}` 保留对 `$HELIX_RUNTIME` env 的识别，因为 Helix 本体就认这个变量。
 > `${HELIX_CONFIG}` 不读任何同名 env —— Helix 本身没有这个变量约定，避免语义被污染。
+> `${pwd}` 直接调用 Rust 的 `std::env::current_dir()` 获取当前目录，跨平台一致，无需 shell。
 
 ## 安装
 

@@ -54,12 +54,21 @@ pub fn helix_cache_dir() -> Option<PathBuf> {
     dirs::cache_dir().map(|c| c.join("helix"))
 }
 
+/// Return the current working directory of the running process.
+///
+/// This is the built-in `pwd` preset: it uses `std::env::current_dir()`
+/// and never spawns any external command, so it works cross-platform.
+pub fn current_dir() -> Option<PathBuf> {
+    std::env::current_dir().ok()
+}
+
 /// Resolve a preset name to its string value, if any.
 pub fn resolve(name: &str) -> Option<String> {
     let path = match name {
         "HELIX_CONFIG" => helix_config_dir(),
         "HELIX_RUNTIME" => helix_runtime_dir(),
         "HELIX_CACHE" => helix_cache_dir(),
+        "pwd" => current_dir(),
         _ => return None,
     };
     path.map(|p| p.to_string_lossy().into_owned())
