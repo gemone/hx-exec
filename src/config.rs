@@ -32,6 +32,41 @@ use std::path::{Path, PathBuf};
 use crate::platform;
 use crate::presets;
 
+/// The value of a per-alias env entry.
+///
+/// Two forms are supported in TOML:
+///
+/// ```toml
+/// # Literal string (existing behaviour):
+/// env.FOO = "bar"
+///
+/// # Command whose stdout becomes the value:
+/// env.NPM_ROOT = { cmd = "npm root -g" }
+///
+/// # Same, but run through a specific shell:
+/// env.NPM_ROOT = { cmd = "npm root -g", shell = "pwsh" }
+/// ```
+#[derive(Debug, Deserialize, Clone)]
+#[serde(untagged)]
+pub enum EnvValue {
+    /// A literal string value.
+    Literal(String),
+    /// Run a command and use its stdout (trimmed) as the value.
+    Command(EnvCommand),
+}
+
+/// Specification for a command-derived env value.
+#[derive(Debug, Deserialize, Clone)]
+pub struct EnvCommand {
+    /// The command to execute. Without `shell`, tokenized via shell-words and
+    /// run directly (cross-platform). With `shell`, passed as a single script
+    /// argument to that shell.
+    pub cmd: String,
+    /// Optional shell to run `cmd` through (same names as `alias.shell`).
+    #[serde(default)]
+    pub shell: Option<String>,
+}
+
 #[derive(Debug, Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
@@ -85,11 +120,11 @@ pub struct Alias {
     pub args: Vec<String>,
 
     /// Per-alias env/extra vars available to expansion.
-    /// Values are themselves expanded before use. These are both exported
-    /// to the child process and made available to `${VAR}` expansion in
-    /// `cmd` / `command` / `args`.
+    /// Values may be literal strings or command-derived (see [`EnvValue`]).
+    /// Resolved values are exported to the child process and made available
+    /// to `${VAR}` expansion in `cmd` / `command` / `args`.
     #[serde(default)]
-    pub env: HashMap<String, String>,
+    pub env: HashMap<String, EnvValue>,
 }
 
 impl Alias {
@@ -116,6 +151,20 @@ impl Alias {
                     "unknown shell `{}` (supported: bash, sh, zsh, fish, dash, pwsh, powershell, cmd)",
                     shell
                 ));
+            }
+        }
+        // Validate shell names inside command-derived env values.
+        for (k, v) in &self.env {
+            if let EnvValue::Command(ec) = v {
+                if let Some(shell) = &ec.shell {
+                    if platform::shell_invocation(shell).is_none() {
+                        return Err(anyhow!(
+                            "env `{}` has unknown shell `{}` (supported: bash, sh, zsh, fish, dash, pwsh, powershell, cmd)",
+                            k,
+                            shell
+                        ));
+                    }
+                }
             }
         }
         Ok(())
@@ -299,6 +348,68 @@ mod tests {
             [[alias.t]]
             os = "plan9"
             cmd = "nope"
+        "#;
+        let cfg: Config = toml::from_str(s).unwrap();
+        assert!(cfg.resolve_alias("t").is_err());
+    }
+
+    #[test]
+    fn env_literal_value_parses() {
+        let s = r#"
+            [alias.t]
+            cmd = "echo hi"
+            env.FOO = "bar"
+        "#;
+        let cfg: Config = toml::from_str(s).unwrap();
+        let a = cfg.resolve_alias("t").unwrap();
+        match a.env.get("FOO").unwrap() {
+            EnvValue::Literal(v) => assert_eq!(v, "bar"),
+            _ => panic!("expected Literal"),
+        }
+    }
+
+    #[test]
+    fn env_command_value_parses() {
+        let s = r#"
+            [alias.t]
+            cmd = "echo hi"
+            env.MY_VAR = { cmd = "echo hello" }
+        "#;
+        let cfg: Config = toml::from_str(s).unwrap();
+        let a = cfg.resolve_alias("t").unwrap();
+        match a.env.get("MY_VAR").unwrap() {
+            EnvValue::Command(ec) => {
+                assert_eq!(ec.cmd, "echo hello");
+                assert!(ec.shell.is_none());
+            }
+            _ => panic!("expected Command"),
+        }
+    }
+
+    #[test]
+    fn env_command_with_shell_parses() {
+        let s = r#"
+            [alias.t]
+            cmd = "echo hi"
+            env.MY_VAR = { cmd = "Write-Output hello", shell = "pwsh" }
+        "#;
+        let cfg: Config = toml::from_str(s).unwrap();
+        let a = cfg.resolve_alias("t").unwrap();
+        match a.env.get("MY_VAR").unwrap() {
+            EnvValue::Command(ec) => {
+                assert_eq!(ec.cmd, "Write-Output hello");
+                assert_eq!(ec.shell.as_deref(), Some("pwsh"));
+            }
+            _ => panic!("expected Command"),
+        }
+    }
+
+    #[test]
+    fn env_command_rejects_unknown_shell() {
+        let s = r#"
+            [alias.t]
+            cmd = "echo hi"
+            env.MY_VAR = { cmd = "something", shell = "unknownsh" }
         "#;
         let cfg: Config = toml::from_str(s).unwrap();
         assert!(cfg.resolve_alias("t").is_err());
