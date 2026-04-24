@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::process::Command;
 
 use crate::presets;
+use crate::util;
 
 #[derive(Default, Debug, Clone)]
 pub struct Expander {
@@ -158,19 +159,7 @@ fn run_capture(cmd: &str) -> Result<String> {
         .args(args)
         .output()
         .with_context(|| format!("failed to spawn: {}", program))?;
-    if !output.status.success() {
-        return Err(anyhow!(
-            "`{}` exited with {}: {}",
-            cmd,
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-    let mut s = String::from_utf8(output.stdout).context("command stdout was not UTF-8")?;
-    while s.ends_with(|c: char| c == '\n' || c == '\r' || c == ' ' || c == '\t') {
-        s.pop();
-    }
-    Ok(s)
+    util::trim_output(output, cmd)
 }
 
 #[cfg(test)]

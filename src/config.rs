@@ -146,24 +146,15 @@ impl Alias {
             ));
         }
         if let Some(shell) = &self.shell {
-            if platform::shell_invocation(shell).is_none() {
-                return Err(anyhow!(
-                    "unknown shell `{}` (supported: bash, sh, zsh, fish, dash, pwsh, powershell, cmd)",
-                    shell
-                ));
-            }
+            platform::validate_shell(shell)
+                .map_err(|e| anyhow!("{}", e))?;
         }
         // Validate shell names inside command-derived env values.
         for (k, v) in &self.env {
             if let EnvValue::Command(ec) = v {
                 if let Some(shell) = &ec.shell {
-                    if platform::shell_invocation(shell).is_none() {
-                        return Err(anyhow!(
-                            "env `{}` has unknown shell `{}` (supported: bash, sh, zsh, fish, dash, pwsh, powershell, cmd)",
-                            k,
-                            shell
-                        ));
-                    }
+                    platform::validate_shell(shell)
+                        .map_err(|e| anyhow!("env `{}` has {}", k, e))?;
                 }
             }
         }

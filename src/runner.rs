@@ -7,6 +7,7 @@ use std::process::Command;
 use crate::config::{Alias, EnvCommand, EnvValue};
 use crate::expand::Expander;
 use crate::platform;
+use crate::util;
 
 /// Fully resolved command, ready to exec / print.
 #[derive(Debug, Clone)]
@@ -154,16 +155,7 @@ fn resolve_env_command(ec: &EnvCommand, expander: &Expander) -> Result<String> {
             .with_context(|| format!("failed to spawn `{}` for env command", prog))?
     };
 
-    if !output.status.success() {
-        return Err(anyhow!(
-            "env command `{}` exited with {}: {}",
-            ec.cmd,
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-    let s = String::from_utf8(output.stdout).context("env command stdout was not UTF-8")?;
-    Ok(s.trim_end().to_string())
+    util::trim_output(output, &ec.cmd)
 }
 
 fn tokens(alias: &Alias) -> Result<(String, Vec<String>)> {

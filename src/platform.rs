@@ -56,3 +56,15 @@ pub fn shell_invocation(shell: &str) -> Option<(&'static str, &'static [&'static
         _ => None,
     }
 }
+
+/// Check if a shell name is valid, returning an error message if not.
+pub fn validate_shell(shell: &str) -> Result<(), String> {
+    if shell_invocation(shell).is_none() {
+        Err(format!(
+            "unknown shell `{}` (supported: bash, sh, zsh, fish, dash, pwsh, powershell, cmd)",
+            shell
+        ))
+    } else {
+        Ok(())
+    }
+}
