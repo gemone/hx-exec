@@ -9,7 +9,7 @@
 //! directly (no shell), for cross-platform consistency. stdout is captured
 //! and trailing whitespace/newlines are trimmed.
 
-use crate::Result;
+use anyhow::{anyhow, Context, Result};
 use std::collections::HashMap;
 use std::process::Command;
 
@@ -66,24 +66,19 @@ impl Expander {
                 match bytes[i + 1] {
                     b'(' if mode == Mode::Full => {
                         let end = find_matching(bytes, i + 1, b'(', b')')
-                            .ok_or_else(|| {
-                                format!("unterminated $( in: {}", input)
-                            })?;
+                            .ok_or_else(|| anyhow!("unterminated $( in: {}", input))?;
                         let inner = std::str::from_utf8(&bytes[i + 2..end])?;
                         // Allow nested expansion inside $(...)
                         let expanded_cmd = self.expand(inner)?;
-                        let output = run_capture(&expanded_cmd).map_err(|e| {
-                            format!("command substitution failed: $({}): {}", inner, e)
-                        })?;
+                        let output = run_capture(&expanded_cmd)
+                            .with_context(|| format!("command substitution failed: $({})", inner))?;
                         out.push_str(&output);
                         i = end + 1;
                         continue;
                     }
                     b'{' => {
                         let end = find_matching(bytes, i + 1, b'{', b'}')
-                            .ok_or_else(|| {
-                                format!("unterminated ${{ in: {}", input)
-                            })?;
+                            .ok_or_else(|| anyhow!("unterminated ${{ in: {}", input))?;
                         let name = std::str::from_utf8(&bytes[i + 2..end])?;
                         out.push_str(&self.lookup(name));
                         i = end + 1;
@@ -154,8 +149,7 @@ fn find_matching(bytes: &[u8], open_idx: usize, open: u8, close: u8) -> Option<u
 
 /// Run a command string (no shell), capture stdout, trim trailing whitespace.
 fn run_capture(cmd: &str) -> Result<String> {
-    let parts = shell_words::split(cmd)
-        .map_err(|e| format!("failed to tokenize command: {}", e))?;
+    let parts = shell_words::split(cmd).context("failed to tokenize command")?;
     if parts.is_empty() {
         return Ok(String::new());
     }
@@ -163,18 +157,16 @@ fn run_capture(cmd: &str) -> Result<String> {
     let output = Command::new(program)
         .args(args)
         .output()
-        .map_err(|e| format!("failed to spawn {}: {}", program, e))?;
+        .with_context(|| format!("failed to spawn: {}", program))?;
     if !output.status.success() {
-        return Err(format!(
+        return Err(anyhow!(
             "`{}` exited with {}: {}",
             cmd,
             output.status,
             String::from_utf8_lossy(&output.stderr).trim()
-        )
-        .into());
+        ));
     }
-    let mut s = String::from_utf8(output.stdout)
-        .map_err(|e| format!("command stdout was not UTF-8: {}", e))?;
+    let mut s = String::from_utf8(output.stdout).context("command stdout was not UTF-8")?;
     while s.ends_with(|c: char| c == '\n' || c == '\r' || c == ' ' || c == '\t') {
         s.pop();
     }
