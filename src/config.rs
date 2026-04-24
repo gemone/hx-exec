@@ -24,7 +24,7 @@
 //! args = ["--stdio"]
 //! ```
 
-use crate::Result;
+use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -98,23 +98,24 @@ impl Alias {
         let has_cmd = self.cmd.is_some();
         let has_command = self.command.is_some();
         if !has_cmd && !has_command {
-            return Err("alias must define either `cmd` or `command`".into());
+            return Err(anyhow!("alias must define either `cmd` or `command`"));
         }
         if has_cmd && has_command {
-            return Err("alias cannot define both `cmd` and `command`; choose one".into());
+            return Err(anyhow!(
+                "alias cannot define both `cmd` and `command`; choose one"
+            ));
         }
         if self.shell.is_some() && has_command {
-            return Err(
-                "alias.shell requires `cmd` (script string), not `command` + `args`".into(),
-            );
+            return Err(anyhow!(
+                "alias.shell requires `cmd` (script string), not `command` + `args`"
+            ));
         }
         if let Some(shell) = &self.shell {
             if platform::shell_invocation(shell).is_none() {
-                return Err(format!(
+                return Err(anyhow!(
                     "unknown shell `{}` (supported: bash, sh, zsh, fish, dash, pwsh, powershell, cmd)",
                     shell
-                )
-                .into());
+                ));
             }
         }
         Ok(())
@@ -124,9 +125,9 @@ impl Alias {
 impl Config {
     pub fn load(path: &Path) -> Result<Self> {
         let text = std::fs::read_to_string(path)
-            .map_err(|e| format!("reading config {}: {}", path.display(), e))?;
-        let cfg: Config = toml::from_str(&text)
-            .map_err(|e| format!("parsing TOML {}: {}", path.display(), e))?;
+            .with_context(|| format!("reading config: {}", path.display()))?;
+        let cfg: Config =
+            toml::from_str(&text).with_context(|| format!("parsing TOML: {}", path.display()))?;
         Ok(cfg)
     }
 
@@ -136,7 +137,7 @@ impl Config {
         let entry = self
             .alias
             .get(name)
-            .ok_or_else(|| format!("alias not found: `{}`", name))?;
+            .ok_or_else(|| anyhow!("alias not found: `{}`", name))?;
         let current = platform::current_os();
         let variants = entry.variants();
 
@@ -160,7 +161,11 @@ impl Config {
             v.validate()?;
             return Ok(v);
         }
-        Err(format!("alias `{}` has no variant matching OS `{}`", name, current).into())
+        Err(anyhow!(
+            "alias `{}` has no variant matching OS `{}`",
+            name,
+            current
+        ))
     }
 }
 
@@ -181,7 +186,7 @@ pub fn find_config(explicit: Option<&Path>) -> Option<PathBuf> {
             return Some(p);
         }
     }
-    if let Some(cfg) = presets::config_dir() {
+    if let Some(cfg) = dirs::config_dir() {
         let p = cfg.join("hx-exec").join("hx-exec.toml");
         if p.is_file() {
             return Some(p);
