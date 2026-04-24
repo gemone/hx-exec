@@ -1,6 +1,6 @@
 //! Build and execute the final command.
 
-use anyhow::{anyhow, Context, Result};
+use crate::Result;
 use std::collections::HashMap;
 use std::process::Command;
 
@@ -31,7 +31,7 @@ impl Resolved {
         for (k, v) in &alias.env {
             let ev = base
                 .expand(v)
-                .with_context(|| format!("expanding env `{}`", k))?;
+                .map_err(|e| format!("expanding env `{}`: {}", k, e))?;
             extra.insert(k.clone(), ev);
         }
         let expander = Expander::with_extra(extra.clone());
@@ -39,11 +39,11 @@ impl Resolved {
         // Shell-wrapped form: `<shell> <flags...> "<expanded-cmd>"`.
         if let Some(shell) = &alias.shell {
             let (prog, flags) = platform::shell_invocation(shell)
-                .ok_or_else(|| anyhow!("unknown shell: {}", shell))?;
+                .ok_or_else(|| format!("unknown shell: {}", shell))?;
             let raw = alias
                 .cmd
                 .as_deref()
-                .ok_or_else(|| anyhow!("alias.shell requires `cmd`"))?;
+                .ok_or("alias.shell requires `cmd`")?;
             let script = expander.expand_braced_only(raw)?;
             let mut args: Vec<String> = flags.iter().map(|s| s.to_string()).collect();
             args.push(script);
@@ -68,7 +68,7 @@ impl Resolved {
     /// Build from a raw argv (already split), expanding every element.
     pub fn from_argv(argv: &[String]) -> Result<Self> {
         if argv.is_empty() {
-            return Err(anyhow!("no command provided"));
+            return Err("no command provided".into());
         }
         let expander = Expander::new();
         let program = expander.expand(&argv[0])?;
@@ -106,22 +106,25 @@ impl Resolved {
         for (k, v) in &self.env {
             cmd.env(k, v);
         }
-        let status = cmd
-            .status()
-            .with_context(|| format!("failed to spawn `{}`", self.program))?;
+        let status = cmd.status().map_err(|e| {
+            format!("failed to spawn `{}`: {}", self.program, e)
+        })?;
         Ok(status.code().unwrap_or(if status.success() { 0 } else { 1 }))
     }
 }
 
 fn tokens(alias: &Alias) -> Result<(String, Vec<String>)> {
     if let Some(cmd) = &alias.cmd {
-        let parts = shell_words::split(cmd).context("tokenizing alias.cmd")?;
+        let parts = shell_words::split(cmd)
+            .map_err(|e| format!("tokenizing alias.cmd: {}", e))?;
         let mut it = parts.into_iter();
-        let program = it.next().ok_or_else(|| anyhow!("alias.cmd is empty"))?;
+        let program = it
+            .next()
+            .ok_or("alias.cmd is empty")?;
         Ok((program, it.collect()))
     } else if let Some(command) = &alias.command {
         Ok((command.clone(), alias.args.clone()))
     } else {
-        Err(anyhow!("alias must define either `cmd` or `command`"))
+        Err("alias must define either `cmd` or `command`".into())
     }
 }
