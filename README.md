@@ -30,6 +30,7 @@ args = ["--stdio",
 - ✅ `hx-exec.toml` 别名配置，支持 **按 OS 匹配变体**
 - ✅ 别名可指定 `shell`（`bash` / `zsh` / `fish` / `pwsh` / `powershell` / `cmd`…），
   直接写原生 shell 脚本，hx-exec 会自动调起对应 shell
+- ✅ **`env` 支持绑定到命令输出**：`env.FOO = { cmd = "npm root -g" }` 或加 `shell = "pwsh"` 指定 shell
 - ✅ 不指定 OS 时行为与最初版本完全一致（向后兼容）
 
 ### 预置路径解析
@@ -143,6 +144,49 @@ env = { NODE_MODULES = "$(npm -g root)" }
 [language-server.angular]
 command = "hx-exec"
 args = ["-c", "angular-lsp"]
+```
+
+### 5. env 绑定到命令输出
+
+`alias.env` 的每个值既可以是 **字面量字符串**（现有行为），
+也可以是 **命令输出**（新功能）——两者可在同一 `env` 块中混用。
+
+```toml
+[alias.eslint]
+command = "vscode-eslint-language-server"
+args = ["--stdio"]
+
+# 字面量（保持现有行为）
+env.EXTRA = "some-literal-value"
+
+# 命令输出（直接执行，不走 shell — 跨平台一致）
+env.NODE_PATH = { cmd = "npm root -g" }
+
+# 命令输出 + 指定 shell（在 Windows pwsh 下解析 npm 路径）
+env.NODE_PATH = { cmd = "npm root -g", shell = "pwsh" }
+```
+
+**行为说明：**
+- 命令 stdout 末尾的空白/换行会被自动 trim（与 `$(cmd)` 替换一致）。
+- 解析后的值既作为环境变量导出到子进程，也可在 `cmd` / `command` / `args` 的 `${VAR}` 展开中使用。
+- 命令失败时报清晰错误，不会静默返回空字符串。
+- `shell` 与 `alias.shell` 使用相同的名称空间（`bash` / `sh` / `zsh` / `fish` / `dash` / `pwsh` / `powershell` / `cmd`）。
+
+**跨平台典型用法：**
+
+```toml
+# 在 Windows 下用 pwsh 获取 npm root，Unix 下直接执行
+[[alias.eslint]]
+os = "windows"
+command = "vscode-eslint-language-server.cmd"
+args = ["--stdio"]
+env.NODE_PATH = { cmd = "npm root -g", shell = "pwsh" }
+
+[[alias.eslint]]
+os = "unix"
+command = "vscode-eslint-language-server"
+args = ["--stdio"]
+env.NODE_PATH = { cmd = "npm root -g" }
 ```
 
 ### OS 值

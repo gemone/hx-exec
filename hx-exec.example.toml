@@ -18,11 +18,33 @@ args = [
   "--tsProbeLocations", "${NODE_MODULES}",
   "--ngProbeLocations", "${NODE_MODULES}",
 ]
+# Literal string env value (existing behaviour):
 env = { NODE_MODULES = "$(npm -g root)" }
 
 [alias.with-helix-config]
 command = "my-lsp"
 args = ["--config", "${HELIX_CONFIG}/my-lsp.toml"]
+
+# ---------------------------------------------------------------------------
+# Command-output env binding — bind an env var to the stdout of a command.
+#
+# Two forms are accepted for each entry in `env`:
+#
+#   env.FOO = "bar"                          # literal string (existing)
+#   env.FOO = { cmd = "npm root -g" }        # command output, run directly
+#   env.FOO = { cmd = "npm root -g",         # command output, via shell
+#               shell = "pwsh" }
+#
+# The resolved value is trimmed of trailing whitespace/newlines and:
+#   - exported to the child process (as an environment variable), AND
+#   - made available to ${FOO} expansion inside `cmd` / `command` / `args`.
+# ---------------------------------------------------------------------------
+
+# Resolve npm root without a shell (cross-platform, direct exec):
+[alias.eslint-direct]
+command = "vscode-eslint-language-server"
+args = ["--stdio"]
+env.NODE_PATH = { cmd = "npm root -g" }
 
 # ---------------------------------------------------------------------------
 # Multi-variant form — pick by OS, optionally wrap through a native shell.
@@ -48,9 +70,11 @@ cmd = "echo no-native-impl"
 os = "windows"
 command = "vscode-eslint-language-server.cmd"
 args = ["--stdio"]
+# Use pwsh to resolve npm root on Windows:
+env.NODE_PATH = { cmd = "npm root -g", shell = "pwsh" }
 
 [[alias.eslint]]
 # Applies on macOS/Linux (or anywhere non-Windows via explicit fallback).
 command = "vscode-eslint-language-server"
 args = ["--stdio"]
-env = { NODE_PATH = "$(npm -g root)" }
+env.NODE_PATH = { cmd = "npm root -g" }
