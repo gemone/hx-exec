@@ -3,6 +3,7 @@ use hx_exec::{
     runner::Resolved,
     Result,
 };
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -15,6 +16,28 @@ struct Cli {
     print: bool,
     /// The command (and args) to run.
     command: Vec<String>,
+}
+
+/// Convert an `OsString` command argument to `String`, returning a user-friendly
+/// error if it is not valid UTF-8.
+fn os_to_string(v: OsString) -> Result<String> {
+    v.into_string()
+        .map_err(|bad| format!("command argument is not valid UTF-8: {:?}", bad).into())
+}
+
+/// Validate that a flag value `raw_val` does not look like another flag
+/// (i.e. does not start with `-`).  Returns an error with `flag` in the
+/// message if it does.
+fn reject_flag_as_value(flag: &str, raw_val: &OsString) -> Result<()> {
+    if raw_val.to_str().map_or(false, |s| s.starts_with('-')) {
+        return Err(format!(
+            "flag `{}` requires a value, got `{}`",
+            flag,
+            raw_val.to_string_lossy()
+        )
+        .into());
+    }
+    Ok(())
 }
 
 fn parse_args() -> Result<Cli> {
@@ -33,14 +56,7 @@ fn parse_args() -> Result<Cli> {
                 let raw_val = args
                     .next()
                     .ok_or_else(|| format!("flag `{}` requires a value", arg))?;
-                if raw_val.to_str().map_or(false, |s| s.starts_with('-')) {
-                    return Err(format!(
-                        "flag `{}` requires a value, got `{}`",
-                        arg,
-                        raw_val.to_string_lossy()
-                    )
-                    .into());
-                }
+                reject_flag_as_value(arg, &raw_val)?;
                 cli.alias = Some(
                     raw_val
                         .into_string()
@@ -51,14 +67,7 @@ fn parse_args() -> Result<Cli> {
                 let raw_val = args
                     .next()
                     .ok_or_else(|| format!("flag `{}` requires a value", arg))?;
-                if raw_val.to_str().map_or(false, |s| s.starts_with('-')) {
-                    return Err(format!(
-                        "flag `{}` requires a value, got `{}`",
-                        arg,
-                        raw_val.to_string_lossy()
-                    )
-                    .into());
-                }
+                reject_flag_as_value(arg, &raw_val)?;
                 // PathBuf accepts OsString directly — no UTF-8 conversion needed
                 cli.file = Some(PathBuf::from(raw_val));
             }
@@ -73,10 +82,7 @@ fn parse_args() -> Result<Cli> {
             }
             "--" => {
                 for rest in args {
-                    cli.command.push(
-                        rest.into_string()
-                            .map_err(|v| format!("command argument is not valid UTF-8: {:?}", v))?,
-                    );
+                    cli.command.push(os_to_string(rest)?);
                 }
                 break;
             }
@@ -86,10 +92,7 @@ fn parse_args() -> Result<Cli> {
             _ => {
                 cli.command.push(arg.to_owned());
                 for rest in args {
-                    cli.command.push(
-                        rest.into_string()
-                            .map_err(|v| format!("command argument is not valid UTF-8: {:?}", v))?,
-                    );
+                    cli.command.push(os_to_string(rest)?);
                 }
                 break;
             }
