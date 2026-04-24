@@ -1,5 +1,10 @@
 name: Release
 
+# Triggers:
+#   - Push of a version tag (v*.*.*) → version is derived from the tag name.
+#   - Manual dispatch          → caller must supply a tag such as "v1.2.3".
+#     If omitted the run is still valid but the release will be marked as a
+#     pre-release labelled with "0.0.0-dev".
 on:
   push:
     tags:
@@ -7,13 +12,56 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag / version to build (e.g. v0.1.0)"
+        description: "Tag / version to build (e.g. v1.2.3)"
         required: false
         default: ""
 
 jobs:
+  # ── Derive version once; pass it to dependent jobs via outputs ─────────────
+  prepare:
+    name: Derive version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version:    ${{ steps.version.outputs.version }}
+      tag:        ${{ steps.version.outputs.tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+
+    steps:
+      # For tag pushes:   GITHUB_REF = refs/tags/v1.2.3  →  version = 1.2.3
+      # For manual runs:  use the supplied tag input; fall back to 0.0.0-dev
+      - name: Derive version from tag
+        id: version
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            # Strip the leading "refs/tags/" prefix
+            RAW="${GITHUB_REF#refs/tags/}"
+          else
+            RAW="${{ github.event.inputs.tag }}"
+          fi
+
+          # Accept bare semver (1.2.3) or with v-prefix (v1.2.3)
+          VERSION="${RAW#v}"
+
+          # Fall back when nothing was provided (manual dispatch without input)
+          if [[ -z "$VERSION" ]]; then
+            VERSION="0.0.0-dev"
+            PRERELEASE="true"
+          else
+            PRERELEASE="false"
+          fi
+
+          TAG="v${VERSION}"
+          echo "version=${VERSION}"       >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}"               >> "$GITHUB_OUTPUT"
+          echo "prerelease=${PRERELEASE}" >> "$GITHUB_OUTPUT"
+          echo "Resolved: tag=${TAG}  version=${VERSION}  prerelease=${PRERELEASE}"
+
   build:
     name: Build (${{ matrix.target }})
+    needs: prepare
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -23,26 +71,35 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            archive_name: hx-exec-linux-x86_64.tar.gz
             binary: hx-exec
 
           - os: macos-latest
             target: x86_64-apple-darwin
-            archive_name: hx-exec-macos-x86_64.tar.gz
             binary: hx-exec
 
           - os: macos-latest
             target: aarch64-apple-darwin
-            archive_name: hx-exec-macos-aarch64.tar.gz
             binary: hx-exec
 
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            archive_name: hx-exec-windows-x86_64.zip
             binary: hx-exec.exe
 
     steps:
       - uses: actions/checkout@v4
+
+      # ── Stamp Cargo.toml with the derived version ────────────────────────────
+      # This ensures the compiled binary reports the correct version when
+      # queried with --version, and that published crate metadata is consistent.
+      # `perl -i` is used because it handles in-place editing portably on both
+      # Linux (GNU) and macOS (BSD) without requiring a backup-extension argument.
+      - name: Set Cargo package version
+        shell: bash
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          perl -i -pe 's/^version = ".*"/version = "'"${VERSION}"'"/' Cargo.toml
+          echo "Cargo.toml version after update:"
+          grep '^version' Cargo.toml
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -59,15 +116,40 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.target }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-${{ matrix.target }}-cargo-release-
 
+      # The version stamp modifies Cargo.toml, so --locked is omitted here.
+      # Cargo.lock records the version at lock time and does not affect the
+      # final binary; only Cargo.toml drives the reported package version.
       - name: Build release binary
-        run: cargo build --locked --release --target ${{ matrix.target }}
+        run: cargo build --release --target ${{ matrix.target }}
+
+      # ── Compute artifact name ────────────────────────────────────────────────
+      # Name pattern: hx-exec-<tag>-<os-arch>.<ext>
+      # Examples:
+      #   hx-exec-v1.2.3-linux-x86_64.tar.gz
+      #   hx-exec-v1.2.3-macos-aarch64.tar.gz
+      #   hx-exec-v1.2.3-windows-x86_64.zip
+      - name: Compute artifact name
+        id: artifact
+        shell: bash
+        run: |
+          TAG="${{ needs.prepare.outputs.tag }}"
+          TARGET="${{ matrix.target }}"
+          case "$TARGET" in
+            x86_64-unknown-linux-gnu)   NAME="hx-exec-${TAG}-linux-x86_64.tar.gz"  ;;
+            x86_64-apple-darwin)        NAME="hx-exec-${TAG}-macos-x86_64.tar.gz"  ;;
+            aarch64-apple-darwin)       NAME="hx-exec-${TAG}-macos-aarch64.tar.gz" ;;
+            x86_64-pc-windows-msvc)     NAME="hx-exec-${TAG}-windows-x86_64.zip"   ;;
+            *)                          NAME="hx-exec-${TAG}-${TARGET}.tar.gz"      ;;
+          esac
+          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+          echo "Artifact name: ${NAME}"
 
       # ── Linux / macOS ────────────────────────────────────────────────────────
       - name: Package (tar.gz)
         if: runner.os != 'Windows'
         run: |
-          cp target/${{ matrix.target }}/release/${{ matrix.binary }} ${{ matrix.binary }}
-          tar -czf ${{ matrix.archive_name }} ${{ matrix.binary }}
+          cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" "${{ matrix.binary }}"
+          tar -czf "${{ steps.artifact.outputs.name }}" "${{ matrix.binary }}"
 
       # ── Windows ──────────────────────────────────────────────────────────────
       - name: Package (zip)
@@ -75,17 +157,19 @@ jobs:
         shell: pwsh
         run: |
           Copy-Item "target\${{ matrix.target }}\release\${{ matrix.binary }}" "${{ matrix.binary }}"
-          Compress-Archive -Path "${{ matrix.binary }}" -DestinationPath "${{ matrix.archive_name }}"
+          Compress-Archive -Path "${{ matrix.binary }}" -DestinationPath "${{ steps.artifact.outputs.name }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
+          # Use the target triple as the artifact name so download-artifact
+          # keeps each platform in its own subdirectory (avoids collisions).
           name: ${{ matrix.target }}
-          path: ${{ matrix.archive_name }}
+          path: ${{ steps.artifact.outputs.name }}
 
   release:
     name: Create GitHub Release
-    needs: build
+    needs: [prepare, build]
     runs-on: ubuntu-latest
 
     permissions:
@@ -99,22 +183,11 @@ jobs:
         with:
           path: artifacts
 
-      - name: Determine release tag
-        id: tag
-        run: |
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            echo "value=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-          else
-            input="${{ github.event.inputs.tag }}"
-            echo "value=${input:-manual-$(date +%Y%m%d-%H%M%S)}" >> "$GITHUB_OUTPUT"
-          fi
-        shell: bash
-
       - name: Create release and upload assets
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tag.outputs.value }}
-          name: "hx-exec ${{ steps.tag.outputs.value }}"
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: "hx-exec ${{ needs.prepare.outputs.tag }}"
           draft: false
-          prerelease: false
+          prerelease: ${{ needs.prepare.outputs.prerelease }}
           files: artifacts/**/*
