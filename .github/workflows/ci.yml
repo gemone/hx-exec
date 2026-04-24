@@ -123,7 +123,7 @@ jobs:
       - name: Install shell (${{ matrix.shell }})
         run: |
           if [ "${{ matrix.shell }}" = "zsh" ]; then
-            apt-get update && apt-get install -y zsh
+            sudo apt-get update && sudo apt-get install -y zsh
           fi
 
       - name: Build Release
