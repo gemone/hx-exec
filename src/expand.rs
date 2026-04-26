@@ -11,8 +11,8 @@
 
 use anyhow::{anyhow, Context, Result};
 use std::collections::HashMap;
-use std::process::Command;
 
+use crate::platform;
 use crate::presets;
 use crate::util;
 
@@ -155,7 +155,7 @@ fn run_capture(cmd: &str) -> Result<String> {
         return Ok(String::new());
     }
     let (program, args) = parts.split_first().unwrap();
-    let mut command = Command::new(program);
+    let mut command = platform::create_command(program);
     
     // Inherit all environment variables from the parent process
     for (k, v) in std::env::vars() {

@@ -106,7 +106,7 @@ impl Resolved {
 
     /// Execute, inheriting stdio. Returns exit code.
     pub fn exec(self) -> Result<i32> {
-        let mut cmd = Command::new(&self.program);
+        let mut cmd = platform::create_command(&self.program);
         cmd.args(&self.args);
         
         // Inherit all environment variables from the parent process
@@ -163,7 +163,7 @@ fn resolve_env_command(ec: &EnvCommand, expander: &Expander) -> Result<String> {
             return Ok(String::new());
         }
         let (prog, args) = parts.split_first().unwrap();
-        let mut cmd = Command::new(prog);
+        let mut cmd = platform::create_command(prog);
         
         // Inherit all environment variables from the parent process
         for (k, v) in std::env::vars() {
