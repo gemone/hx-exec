@@ -1,6 +1,6 @@
 [package]
 name = "hx-exec"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "Cross-platform launcher that expands ${VAR}, $(cmd), and TOML aliases — designed for Helix LSP/tools."
 license = "MIT OR Apache-2.0"
