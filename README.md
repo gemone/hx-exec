@@ -31,6 +31,7 @@ args = ["--stdio",
 - ✅ 别名可指定 `shell`（`bash` / `zsh` / `fish` / `pwsh` / `powershell` / `cmd`…），
   直接写原生 shell 脚本，hx-exec 会自动调起对应 shell
 - ✅ **`env` 支持绑定到命令输出**：`env.FOO = { cmd = "npm root -g" }` 或加 `shell = "pwsh"` 指定 shell
+- ✅ **`shared` 共享模板**：复用公共的 `args` / `env` / `command` / `cmd` / `shell`，alias 里用 `use = "name"` 继承
 - ✅ 不指定 OS 时行为与最初版本完全一致（向后兼容）
 
 ### 预置路径解析
@@ -86,10 +87,13 @@ cmd = "rust-analyzer"
 command = "ngserver"
 args = [
   "--stdio",
-  "--tsProbeLocations", "${NODE_MODULES}",
-  "--ngProbeLocations", "${NODE_MODULES}",
+  "--tsProbeLocations", "${TS_PROBE}",
+  "--ngProbeLocations", "${NG_PROBE}",
+  "--angularCoreVersion", "19",
 ]
-env = { NODE_MODULES = "$(npm -g root)" }
+env.NODE_MODULES = { cmd = "npm root -g" }
+env.TS_PROBE = "${NODE_MODULES}/typescript/lib"
+env.NG_PROBE = "${NODE_MODULES}/@angular/language-server/bin"
 ```
 
 然后：
@@ -128,17 +132,20 @@ cmd = "echo no-native-impl"
 [[alias.angular-lsp]]
 os = "windows"
 shell = "pwsh"
-cmd = 'ngserver --stdio --tsProbeLocations (npm -g root) --ngProbeLocations (npm -g root)'
+cmd = 'ngserver --stdio --tsProbeLocations ((npm root -g) + "/typescript/lib") --ngProbeLocations ((npm root -g) + "/@angular/language-server/bin") --angularCoreVersion 19'
 
 [[alias.angular-lsp]]
 os = "unix"
 command = "ngserver"
 args = [
   "--stdio",
-  "--tsProbeLocations", "${NODE_MODULES}",
-  "--ngProbeLocations", "${NODE_MODULES}",
+  "--tsProbeLocations", "${TS_PROBE}",
+  "--ngProbeLocations", "${NG_PROBE}",
+  "--angularCoreVersion", "19",
 ]
-env = { NODE_MODULES = "$(npm -g root)" }
+env.NODE_MODULES = { cmd = "npm root -g" }
+env.TS_PROBE = "${NODE_MODULES}/typescript/lib"
+env.NG_PROBE = "${NODE_MODULES}/@angular/language-server/bin"
 ```
 
 然后 `languages.toml`：
@@ -167,6 +174,46 @@ env.NODE_PATH = { cmd = "npm root -g" }
 # 命令输出 + 指定 shell（在 Windows pwsh 下解析 npm 路径）
 env.NODE_PATH = { cmd = "npm root -g", shell = "pwsh" }
 ```
+
+### 6. `shared` 共享模板（避免重复配置）
+
+当多个 alias 共享同一组 `args`、`env` 或启动方式时，可以定义顶层共享模板：
+
+```toml
+[shared.angular-19-probe]
+args = [
+  "--stdio",
+  "--tsProbeLocations", "${TS_PROBE}",
+  "--ngProbeLocations", "${NG_PROBE}",
+  "--angularCoreVersion", "19",
+]
+env.NODE_MODULES = { cmd = "npm root -g" }
+env.TS_PROBE = "${NODE_MODULES}/typescript/lib"
+env.NG_PROBE = "${NODE_MODULES}/@angular/language-server/bin"
+
+[alias.angular-lsp]
+use = "angular-19-probe"
+command = "ngserver"
+```
+
+也可以在 alias 中追加或覆盖：
+
+```toml
+[shared.node-lsp]
+args = ["--stdio"]
+env.NODE_MODULES = { cmd = "npm -g root" }
+
+[alias.angular-lsp]
+use = "node-lsp"
+command = "ngserver"
+args = ["--tsProbeLocations", "${NODE_MODULES}"]
+```
+
+合并规则：
+- `args`: shared 在前，alias 自己的 `args` 追加在后
+- `env`: shared 为默认值，alias 同名键覆盖
+- `shell` / `cmd` / `command`: alias 优先，没有时继承 shared
+- `os`: 只由 alias 自己控制，不从 shared 继承
 
 **行为说明：**
 - 命令 stdout 末尾的空白/换行会被自动 trim（与 `$(cmd)` 替换一致）。

@@ -71,6 +71,22 @@ pub struct EnvCommand {
 pub struct Config {
     #[serde(default)]
     pub alias: HashMap<String, AliasEntry>,
+    #[serde(default)]
+    pub shared: HashMap<String, SharedAlias>,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct SharedAlias {
+    #[serde(default)]
+    pub shell: Option<String>,
+    #[serde(default)]
+    pub cmd: Option<String>,
+    #[serde(default)]
+    pub command: Option<String>,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: HashMap<String, EnvValue>,
 }
 
 /// A single alias may be either a single table or an array-of-tables.
@@ -97,6 +113,9 @@ pub struct Alias {
     /// When omitted, matches any OS.
     #[serde(default)]
     pub os: Option<String>,
+
+    #[serde(rename = "use", default)]
+    pub use_template: Option<String>,
 
     /// Optional shell to run `cmd` through (e.g. "pwsh", "bash", "cmd").
     /// When set, `cmd` is passed as a single script string to that shell
@@ -173,7 +192,7 @@ impl Config {
 
     /// Resolve an alias for the current OS. Variants are tried in declared order;
     /// the first whose `os` matches (or is omitted) wins.
-    pub fn resolve_alias(&self, name: &str) -> Result<&Alias> {
+    pub fn resolve_alias(&self, name: &str) -> Result<Alias> {
         let entry = self
             .alias
             .get(name)
@@ -186,8 +205,9 @@ impl Config {
         for v in variants {
             match &v.os {
                 Some(os) if platform::os_matches(os, current) => {
-                    v.validate()?;
-                    return Ok(v);
+                    let resolved = self.apply_shared(v)?;
+                    resolved.validate()?;
+                    return Ok(resolved);
                 }
                 None => {
                     if fallback.is_none() {
@@ -198,14 +218,42 @@ impl Config {
             }
         }
         if let Some(v) = fallback {
-            v.validate()?;
-            return Ok(v);
+            let resolved = self.apply_shared(v)?;
+            resolved.validate()?;
+            return Ok(resolved);
         }
         Err(anyhow!(
             "alias `{}` has no variant matching OS `{}`",
             name,
             current
         ))
+    }
+
+    fn apply_shared(&self, alias: &Alias) -> Result<Alias> {
+        let Some(template_name) = &alias.use_template else {
+            return Ok(alias.clone());
+        };
+
+        let shared = self
+            .shared
+            .get(template_name)
+            .ok_or_else(|| anyhow!("shared template not found: `{}`", template_name))?;
+
+        let mut env = shared.env.clone();
+        env.extend(alias.env.clone());
+
+        let mut args = shared.args.clone();
+        args.extend(alias.args.clone());
+
+        Ok(Alias {
+            os: alias.os.clone(),
+            use_template: alias.use_template.clone(),
+            shell: alias.shell.clone().or_else(|| shared.shell.clone()),
+            cmd: alias.cmd.clone().or_else(|| shared.cmd.clone()),
+            command: alias.command.clone().or_else(|| shared.command.clone()),
+            args,
+            env,
+        })
     }
 }
 
@@ -404,5 +452,44 @@ mod tests {
         "#;
         let cfg: Config = toml::from_str(s).unwrap();
         assert!(cfg.resolve_alias("t").is_err());
+    }
+
+    #[test]
+    fn shared_template_merges_args_and_env() {
+        let s = r#"
+            [shared.angular]
+            args = ["--stdio", "--tsProbeLocations", "${NODE_MODULES}"]
+            env.NODE_MODULES = { cmd = "npm root -g" }
+
+            [alias.angular-lsp]
+            use = "angular"
+            command = "ngserver"
+            args = ["--ngProbeLocations", "${NODE_MODULES}"]
+        "#;
+        let cfg: Config = toml::from_str(s).unwrap();
+        let a = cfg.resolve_alias("angular-lsp").unwrap();
+        assert_eq!(a.command.as_deref(), Some("ngserver"));
+        assert_eq!(
+            a.args,
+            vec![
+                "--stdio",
+                "--tsProbeLocations",
+                "${NODE_MODULES}",
+                "--ngProbeLocations",
+                "${NODE_MODULES}"
+            ]
+        );
+        assert!(matches!(a.env.get("NODE_MODULES"), Some(EnvValue::Command(_))));
+    }
+
+    #[test]
+    fn shared_template_missing_errors() {
+        let s = r#"
+            [alias.angular-lsp]
+            use = "missing"
+            command = "ngserver"
+        "#;
+        let cfg: Config = toml::from_str(s).unwrap();
+        assert!(cfg.resolve_alias("angular-lsp").is_err());
     }
 }

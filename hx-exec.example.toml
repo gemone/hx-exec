@@ -11,15 +11,20 @@
 [alias.rust-analyzer]
 cmd = "rust-analyzer"
 
-[alias.angular-lsp]
-command = "ngserver"
+[shared.angular-19-probe]
 args = [
   "--stdio",
-  "--tsProbeLocations", "${NODE_MODULES}",
-  "--ngProbeLocations", "${NODE_MODULES}",
+  "--tsProbeLocations", "${TS_PROBE}",
+  "--ngProbeLocations", "${NG_PROBE}",
+  "--angularCoreVersion", "19",
 ]
-# Literal string env value (existing behaviour):
-env = { NODE_MODULES = "$(npm -g root)" }
+env.NODE_MODULES = { cmd = "npm root -g" }
+env.TS_PROBE = "${NODE_MODULES}/typescript/lib"
+env.NG_PROBE = "${NODE_MODULES}/@angular/language-server/bin"
+
+[alias.angular-lsp]
+use = "angular-19-probe"
+command = "ngserver"
 
 [alias.with-helix-config]
 command = "my-lsp"

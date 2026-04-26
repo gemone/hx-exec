@@ -106,7 +106,8 @@ impl Resolved {
 
     /// Execute, inheriting stdio. Returns exit code.
     pub fn exec(self) -> Result<i32> {
-        let mut cmd = platform::create_command(&self.program);
+        let mut cmd = platform::create_command(&self.program)
+            .with_context(|| format!("failed to resolve program `{}`", self.program))?;
         cmd.args(&self.args);
         
         // Inherit all environment variables from the parent process
@@ -163,7 +164,8 @@ fn resolve_env_command(ec: &EnvCommand, expander: &Expander) -> Result<String> {
             return Ok(String::new());
         }
         let (prog, args) = parts.split_first().unwrap();
-        let mut cmd = platform::create_command(prog);
+        let mut cmd = platform::create_command(prog)
+            .with_context(|| format!("failed to resolve program `{}` for env command", prog))?;
         
         // Inherit all environment variables from the parent process
         for (k, v) in std::env::vars() {
@@ -175,7 +177,11 @@ fn resolve_env_command(ec: &EnvCommand, expander: &Expander) -> Result<String> {
             .with_context(|| format!("failed to spawn `{}` for env command", prog))?
     };
 
-    util::trim_output(output, &ec.cmd)
+    let trimmed = util::trim_output(output, &ec.cmd)?;
+    if trimmed.is_empty() {
+        return Err(anyhow!("command produced empty output: {}", ec.cmd));
+    }
+    Ok(trimmed)
 }
 
 fn tokens(alias: &Alias) -> Result<(String, Vec<String>)> {
@@ -380,5 +386,26 @@ mod tests {
 
         std::env::remove_var(test_var);
     }
-}
 
+    #[test]
+    fn env_command_empty_output_errors() {
+        let mut alias = alias_with_cmd("echo ok");
+        #[cfg(not(target_os = "windows"))]
+        let cmd_str = "sh -c ':'";
+        #[cfg(target_os = "windows")]
+        let cmd_str = "cmd /C rem";
+
+        alias.env.insert(
+            "EMPTY_VAR".to_string(),
+            EnvValue::Command(EnvCommand {
+                cmd: cmd_str.to_string(),
+                shell: None,
+            }),
+        );
+
+        let err = Resolved::from_alias(&alias).unwrap_err();
+        let msg = format!("{:#}", err);
+        assert!(msg.contains("resolving command for env `EMPTY_VAR`"));
+        assert!(msg.contains("command produced empty output"));
+    }
+}

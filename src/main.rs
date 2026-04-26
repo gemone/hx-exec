@@ -55,7 +55,7 @@ fn run() -> Result<i32> {
         let cfg = Config::load(&path)
             .with_context(|| format!("loading config: {}", path.display()))?;
         let alias = cfg.resolve_alias(alias_name)?;
-        Resolved::from_alias(alias)?
+        Resolved::from_alias(&alias)?
     } else {
         if cli.command.is_empty() {
             return Err(anyhow!(

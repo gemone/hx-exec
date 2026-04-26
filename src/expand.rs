@@ -155,7 +155,8 @@ fn run_capture(cmd: &str) -> Result<String> {
         return Ok(String::new());
     }
     let (program, args) = parts.split_first().unwrap();
-    let mut command = platform::create_command(program);
+    let mut command = platform::create_command(program)
+        .with_context(|| format!("failed to resolve program: {}", program))?;
     
     // Inherit all environment variables from the parent process
     for (k, v) in std::env::vars() {
